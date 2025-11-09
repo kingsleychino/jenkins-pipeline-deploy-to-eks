@@ -1,86 +1,55 @@
-# Create a VPC
-resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-  enable_dns_support = true
-  enable_dns_hostnames = true
+# -----------------------
+# VPC Module
+# -----------------------
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
+
+  name = "eks-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs             = slice(data.aws_availability_zones.available.names, 0, 3)
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
 
   tags = {
-    Name = "eks-vpc"
+    Terraform   = "true"
+    Environment = var.environment
   }
 }
 
-# Create subnets
-resource "aws_subnet" "subnet_1" {
-  vpc_id = aws_vpc.main.id
-  cidr_block = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
-  map_public_ip_on_launch = true
+# -----------------------
+# EKS Module
+# -----------------------
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "~> 20.0"
 
-  tags = {
-    Name = "dev-subnet-1"
-  }
-}
+  cluster_name    = "my-eks-cluster"
+  cluster_version = "1.30"
+  cluster_endpoint_public_access = true
 
-resource "aws_subnet" "subnet_2" {
-  vpc_id = aws_vpc.main.id
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
-  map_public_ip_on_launch = true
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnets
 
-  tags = {
-    Name = "dev-subnet-2"
-  }
-}
+  eks_managed_node_groups = {
+    default = {
+      desired_size = 2
+      max_size     = 3
+      min_size     = 1
 
-resource "aws_subnet" "subnet_3" {
-  vpc_id = aws_vpc.main.id
-  cidr_block = "10.0.3.0/24"
-  availability_zone = "us-east-1c"
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "dev-subnet-3"
-  }
-}
-
-
-# Create internet gateway
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main.id
-
-  tags = {
-    Name = "dev-igw"
-  }
-}
-
-
-# Create route table
-resource "aws_route_table" "route-table" {
-  vpc_id = aws_vpc.main.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
+      instance_types = ["t3.medium"]
+      capacity_type  = "ON_DEMAND"
+    }
   }
 
   tags = {
-    Name = "dev-public-rt"
+    Terraform   = "true"
+    Environment = var.environment
   }
 }
 
-
-# Create route table association 
-resource "aws_route_table_association" "subnet_1-rt" {
-  subnet_id = aws_subnet.subnet_1.id
-  route_table_id = aws_route_table.route-table.id
-}
-
-resource "aws_route_table_association" "subnet_2-rt" {
-  subnet_id = aws_subnet.subnet_2.id
-  route_table_id = aws_route_table.route-table.id
-}
-
-resource "aws_route_table_association" "subnet_3-rt" {
-  subnet_id = aws_subnet.subnet_3.id
-  route_table_id = aws_route_table.route-table.id
-}
+data "aws_availability_zones" "available" {}
